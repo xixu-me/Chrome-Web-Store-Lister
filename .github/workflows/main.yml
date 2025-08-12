@@ -1,0 +1,184 @@
+name: List Update
+
+on:
+  # Run daily at 8:00 AM UTC for consistent data collection
+  schedule:
+    - cron: "0 8 * * *"
+  # Allow manual workflow execution for testing and maintenance
+  workflow_dispatch:
+
+jobs:
+  update-list:
+    runs-on: ubuntu-latest
+
+    # Grant necessary permissions for repository operations
+    permissions:
+      contents: write
+
+    steps:
+      # Step 1: Repository Setup
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Python Environment Configuration
+      - name: Configure Python environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # Step 3: Dependency Installation
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Step 4: Chrome Web Store Item Data Collection
+      - name: Execute Chrome Web Store item data collection
+        id: data-collection
+        run: |
+          echo "🚀 Initiating Chrome Web Store item data collection process..."
+
+          # Record collection start time for performance monitoring
+          START_TIME=$(date +%s)
+
+          # Execute the data collection script with optimized parameters
+          if python main.py --output data.json --max-workers 3 --delay 0.2; then
+            echo "✅ Data collection completed successfully"
+            COLLECTION_SUCCESS=true
+          else
+            echo "❌ Data collection failed"
+            COLLECTION_SUCCESS=false
+            exit 1
+          fi
+
+          # Calculate execution duration and record metrics
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+          echo "duration=${DURATION}" >> $GITHUB_OUTPUT
+          echo "success=${COLLECTION_SUCCESS}" >> $GITHUB_OUTPUT
+
+          echo "⏱️ Total execution time: ${DURATION} seconds"
+
+      # Step 5: Output Validation and Quality Assurance
+      - name: Validate collected data and perform quality checks
+        run: |
+          # Verify output file was created
+          if [ ! -f "data.json" ]; then
+            echo "❌ Error: data.json output file was not created"
+            echo "::error::Output file data.json was not generated"
+            exit 1
+          fi
+
+          # Validate JSON format and structure
+          if ! python -c "import json; data=json.load(open('data.json')); print(f'Items: {len(data)}')"; then
+            echo "❌ Error: Invalid JSON format detected"
+            echo "::error::Generated data.json has invalid JSON format"
+            exit 1
+          fi
+
+          # Verify minimum data quality threshold (expect at least 1000 items)
+          ITEM_COUNT=$(python -c "import json; print(len(json.load(open('data.json'))))")
+          echo "items_count=${ITEM_COUNT}" >> $GITHUB_OUTPUT
+
+          if [ "${ITEM_COUNT}" -lt 1000 ]; then
+            echo "⚠️ Warning: Item count below expected threshold (${ITEM_COUNT})"
+            echo "::warning::Item count is unusually low: ${ITEM_COUNT}"
+          else
+            echo "✅ Data validation passed with ${ITEM_COUNT} items"
+          fi
+
+          # Verify data integrity and uniqueness
+          python -c "import json; data=json.load(open('data.json')); unique_ids=set(item['id'] for item in data); print(f'✅ All {len(data)} items have unique IDs' if len(unique_ids)==len(data) else '⚠️ Warning: Duplicate items detected')"
+
+      # Step 6: System Resource Monitoring
+      - name: Monitor system resource utilization
+        if: always()
+        run: |
+          echo "📊 Post-execution system resource analysis:"
+          echo "Memory usage: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
+          echo "CPU load average: $(uptime | awk -F'load average:' '{print $2}')"
+          echo "Disk usage: $(df -h / | tail -1 | awk '{print $5}')"
+
+      # Step 7: Date and Time Generation
+      - name: Generate timestamp for release tagging
+        id: timestamp
+        run: |
+          echo "current=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+          echo "datetime=$(date +'%Y-%m-%d at %H:%M UTC')" >> $GITHUB_OUTPUT
+
+      # Step 8: List Branch Management and Version Control
+      - name: Commit collected data to dedicated list branch
+        run: |
+          # Configure Git identity for automated commits
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Create or update the dedicated list branch
+          if git ls-remote --exit-code --heads origin list; then
+            git fetch origin list
+            git checkout list
+            git reset --hard origin/list
+          else
+            git checkout --orphan list
+            git rm -rf . 2>/dev/null || true
+            git commit --allow-empty -m "Initialize list branch"
+            git push origin list
+          fi
+
+          # Stage the collected data file
+          git add data.json
+
+          # Commit changes with timestamp if there are modifications
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update list: ${{ steps.timestamp.outputs.datetime }}"
+            git push --force origin list
+          fi
+
+      # Step 9: GitHub Release Creation and Publishing
+      - name: Create GitHub release with collected data
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.timestamp.outputs.current }}
+          name: ${{ steps.timestamp.outputs.current }}
+          body: |
+            ## Chrome Web Store List Update
+
+            📅 **Collection Time**: ${{ steps.timestamp.outputs.datetime }}
+            📊 **Items Count**: ${{ steps.data-collection.outputs.items_count || 'N/A' }}
+            ⏱️ **Collection Time**: ${{ steps.data-collection.outputs.duration || 'N/A' }} seconds
+
+            This release contains the latest Chrome Web Store item data collected automatically through our monitoring pipeline.
+          files: data.json
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Step 10: Failure Notification and Debugging
+      - name: Handle workflow failure and provide diagnostic information
+        if: failure()
+        run: |
+          echo "::error::❌ Chrome Web Store item data collection workflow failed!"
+          echo "::error::Please review the workflow logs for detailed error analysis."
+          echo "::error::Common failure causes: Network connectivity issues, API rate limiting, or Chrome Web Store structure changes."
+
+          # Record failure details for operational monitoring
+          echo "FAILURE_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_ENV
+          echo "FAILURE_STEP=${{ github.action }}" >> $GITHUB_ENV
+
+      # Step 11: Success Notification and Summary
+      - name: Report successful workflow completion
+        if: success()
+        run: |
+          echo "✅ Chrome Web Store item data collection workflow completed successfully!"
+          echo "📊 Collected ${{ steps.data-collection.outputs.items_count || 'N/A' }} item records"
+          echo "⏱️ Total collection time: ${{ steps.data-collection.outputs.duration || 'N/A' }} seconds"
+
+      # Step 12: Cleanup and Resource Management
+      - name: Clean up temporary files and resources
+        if: always()
+        run: |
+          rm -f data.json
+          echo "🧹 Temporary file cleanup completed"
