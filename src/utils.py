@@ -201,4 +201,8 @@ def is_valid_chrome_store_url(url: str) -> bool:
     if not validate_url(url):
         return False
 
-    return "/detail/" in url and "chromewebstore.google.com" in url
+    parsed = urllib.parse.urlparse(url)
+    return (
+        parsed.hostname == "chromewebstore.google.com"
+        and "/detail/" in parsed.path
+    )
