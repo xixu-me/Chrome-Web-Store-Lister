@@ -172,7 +172,7 @@ def _extract_name_from_title(url: str, timeout: int = 30) -> Optional[str]:
                 
     except Exception:
         # If any error occurs, return None to fall back to URL-based extraction
-        pass
+        return None
         
     return None
 
