@@ -9,6 +9,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Optional
 
+import requests
 import validators
 
 
@@ -139,12 +140,51 @@ def sanitize_item_data(item_data: dict) -> Optional[dict]:
     return sanitized
 
 
+def _extract_name_from_title(url: str, timeout: int = 30) -> Optional[str]:
+    """
+    Extract item name from Chrome Web Store page title.
+    
+    Fetches the page and extracts the name from the title tag,
+    removing the " - Chrome Web Store" suffix.
+    
+    Args:
+        url: Chrome Web Store item detail URL.
+        timeout: Request timeout in seconds.
+        
+    Returns:
+        Optional[str]: Extracted item name or None if extraction failed.
+    """
+    try:
+        # Make HTTP request to fetch the page
+        response = requests.get(url, timeout=timeout)
+        response.raise_for_status()
+        
+        # Extract title from HTML using regex
+        title_match = re.search(r'<title[^>]*>([^<]+)</title>', response.text, re.IGNORECASE)
+        
+        if title_match:
+            full_title = title_match.group(1).strip()
+            
+            # Remove the " - Chrome Web Store" suffix
+            chrome_store_suffix = " - Chrome Web Store"
+            if full_title.endswith(chrome_store_suffix):
+                return full_title[:-len(chrome_store_suffix)].strip()
+                
+    except Exception:
+        # If any error occurs, return None to fall back to URL-based extraction
+        pass
+        
+    return None
+
+
 def extract_item_data(url: str) -> Optional[dict[str, str]]:
     """
     Extract Chrome Web Store item data from URL.
 
     Parses Chrome Web Store detail URLs to extract item information
-    including ID, name, and download links.
+    including ID, name, and download links. Attempts to fetch the actual
+    page title for more accurate name extraction, with fallback to URL-based
+    name extraction.
 
     Args:
         url: Chrome Web Store item detail URL.
@@ -166,15 +206,19 @@ def extract_item_data(url: str) -> Optional[dict[str, str]]:
     item_id = url_match.group(2)
 
     try:
-        # Format item name by replacing URL-encoded dashes with spaces
-        formatted_name = urllib.parse.unquote(raw_item_name).replace("-", " ")
+        # First, try to extract name from page title
+        item_name = _extract_name_from_title(url)
+        
+        # If title extraction failed, fall back to URL-based extraction
+        if item_name is None:
+            item_name = urllib.parse.unquote(raw_item_name).replace("-", " ")
 
         # Generate Chrome item download URL
         crx_download_url = f"https://clients2.google.com/service/update2/crx?response=redirect&prodversion=138&acceptformat=crx2,crx3&x=id%3D{item_id}%26uc"
 
         item_data = {
             "id": item_id,
-            "name": formatted_name,
+            "name": item_name,
             "page": url,
             "file": crx_download_url,
         }
