@@ -29,6 +29,7 @@ def main() -> None:
             delay=args.delay,
             max_workers=args.max_workers,
             retry_attempts=args.retry_attempts,
+            show_progress=not args.no_progress,
         )
 
         # Execute the data collection process

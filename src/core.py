@@ -17,6 +17,7 @@ from xml.etree import ElementTree as ET
 import psutil
 import requests
 from requests.adapters import HTTPAdapter
+from tqdm import tqdm
 from urllib3.util.retry import Retry
 
 from src.config import (
@@ -172,6 +173,7 @@ class ChromeWebStoreLister:
         delay: float,
         max_workers: int,
         retry_attempts: int,
+        show_progress: bool = True,
     ) -> None:
         """
         Initialize the Chrome Web Store item data collection system.
@@ -182,6 +184,7 @@ class ChromeWebStoreLister:
             delay: Delay between consecutive requests in seconds (rate limiting).
             max_workers: Maximum number of concurrent worker threads.
             retry_attempts: Number of retry attempts for failed HTTP requests.
+            show_progress: Whether to display progress bars during processing.
         """
         # Store configuration parameters
         self.output_file = output_file
@@ -189,6 +192,7 @@ class ChromeWebStoreLister:
         self.delay = delay
         self.max_workers = max_workers
         self.retry_attempts = retry_attempts
+        self.show_progress = show_progress
 
         # Initialize performance monitoring system
         self.performance = PerformanceMonitor()
@@ -315,12 +319,15 @@ class ChromeWebStoreLister:
         self.logger.info(f"Found {len(shard_urls)} shard URLs")
         return shard_urls
 
-    def _process_shard(self, shard_url: str) -> dict[str, Any]:
+    def _process_shard(
+        self, shard_url: str, show_progress: bool = True
+    ) -> dict[str, Any]:
         """
         Process a single shard and extract item data.
 
         Args:
             shard_url: URL of the shard to process.
+            show_progress: Whether to display progress bars during processing.
 
         Returns:
             dict[str, any]: Dictionary containing extracted items and statistics.
@@ -340,7 +347,26 @@ class ChromeWebStoreLister:
             if shard_root is None:
                 return result
 
-            for url_elem in shard_root.findall(f"{SITEMAP_NAMESPACE}url"):
+            # Get all URL elements for progress tracking
+            url_elements = shard_root.findall(f"{SITEMAP_NAMESPACE}url")
+
+            # Create progress bar for URL processing within this shard
+            # Only show if there are many URLs to process and progress is enabled
+            show_url_progress = len(url_elements) > 100 and show_progress
+            url_progress = None
+            if show_url_progress:
+                url_progress = tqdm(
+                    url_elements,
+                    desc="Processing URLs in shard",
+                    unit="url",
+                    leave=False,
+                    ncols=80,
+                )
+                url_iterator = url_progress
+            else:
+                url_iterator = url_elements
+
+            for url_elem in url_iterator:
                 loc = url_elem.find(f"{SITEMAP_NAMESPACE}loc")
                 if loc is not None and loc.text:
                     result["stats"]["total_urls"] += 1
@@ -354,6 +380,10 @@ class ChromeWebStoreLister:
                             result["stats"]["failed_extractions"] += 1
                     else:
                         result["stats"]["invalid_urls"] += 1
+
+            # Close progress bar if it was created
+            if url_progress is not None:
+                url_progress.close()
 
             # Respect rate limits
             time.sleep(self.delay)
@@ -389,17 +419,30 @@ class ChromeWebStoreLister:
         self.statistics["total_shards"] = len(shard_urls)
         all_items = []
 
+        # Create progress bar for shard processing
+        progress_bar = None
+        if self.show_progress:
+            progress_bar = tqdm(
+                total=len(shard_urls),
+                desc="Processing shards",
+                unit="shard",
+                ncols=100,
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} "
+                "[{elapsed}<{remaining}, {rate_fmt}]",
+            )
+
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all shard processing tasks
             future_to_shard = {
-                executor.submit(self._process_shard, shard_url): shard_url
+                executor.submit(
+                    self._process_shard, shard_url, self.show_progress
+                ): shard_url
                 for shard_url in shard_urls
             }
 
             # Process completed tasks
-            for i, future in enumerate(as_completed(future_to_shard), 1):
+            for future in as_completed(future_to_shard):
                 shard_url = future_to_shard[future]
-                self.logger.info(f"Processing shard {i}/{len(shard_urls)}")
 
                 try:
                     shard_result = future.result()
@@ -415,6 +458,17 @@ class ChromeWebStoreLister:
                     ]
                     self.statistics["valid_items"] += shard_stats["valid_items"]
 
+                    # Update progress bar with details
+                    if progress_bar is not None:
+                        progress_bar.set_postfix(
+                            {
+                                "Items": len(all_items),
+                                "URLs": self.statistics["total_urls"],
+                                "Invalid": self.statistics["invalid_urls"],
+                            }
+                        )
+                        progress_bar.update(1)
+
                     self.logger.debug(
                         f"Shard {shard_url} yielded {len(shard_items)} items "
                         f"({shard_stats['total_urls']} URLs processed, "
@@ -423,11 +477,30 @@ class ChromeWebStoreLister:
                     )
                 except Exception as e:
                     self.statistics["failed_shards"] += 1
+                    if progress_bar is not None:
+                        progress_bar.update(1)
                     self.logger.error(f"Shard {shard_url} failed: {e}")
 
-        # Remove duplicates based on item ID
+        # Close progress bar
+        if progress_bar is not None:
+            progress_bar.close()
+
+        # Remove duplicates based on item ID with progress tracking
+        self.logger.info("Removing duplicate items...")
         items_before_dedup = len(all_items)
-        unique_items_dict = {item["id"]: item for item in all_items}
+
+        if items_before_dedup > 1000 and self.show_progress:
+            # Show progress for large datasets
+            dedup_progress = tqdm(
+                all_items, desc="Removing duplicates", unit="item", ncols=80
+            )
+            unique_items_dict = {}
+            for item in dedup_progress:
+                unique_items_dict[item["id"]] = item
+            dedup_progress.close()
+        else:
+            unique_items_dict = {item["id"]: item for item in all_items}
+
         unique_items = list(unique_items_dict.values())
 
         # Update final statistics

@@ -160,6 +160,13 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        default=os.getenv("NO_PROGRESS", "false").lower() == "true",
+        help="Disable progress bars (useful for CI/CD environments)",
+    )
+
+    parser.add_argument(
         "--version", action="version", version="Chrome Web Store Lister 1.0.0"
     )
 
@@ -185,6 +192,7 @@ def main() -> None:
         delay=args.delay,
         max_workers=args.max_workers,
         retry_attempts=args.retry_attempts,
+        show_progress=not args.no_progress,
     )
 
     # Execute the data collection process
