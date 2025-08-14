@@ -9,7 +9,9 @@ import urllib.parse
 from pathlib import Path
 from typing import Optional
 
+import requests
 import validators
+from bs4 import BeautifulSoup
 
 
 def sanitize_filename(filename: str) -> str:
@@ -42,6 +44,52 @@ def sanitize_filename(filename: str) -> str:
         filename = "output"
 
     return filename
+
+
+def get_chrome_store_item_name(url: str) -> Optional[str]:
+    """
+    Fetch the actual item name from Chrome Web Store page title.
+
+    Fetches the page and extracts the title, then removes the " - Chrome Web Store"
+    suffix to get the clean item name.
+
+    Args:
+        url: The Chrome Web Store item URL.
+
+    Returns:
+        The clean item name as a string, or None if the title
+        cannot be retrieved or processed.
+    """
+    try:
+        # Set a timeout to prevent the request from hanging indefinitely
+        response = requests.get(url, timeout=10)
+        # Raise an HTTPError for bad responses (4xx or 5xx)
+        response.raise_for_status()
+
+        # Parse the HTML content
+        soup = BeautifulSoup(response.content, "html.parser")
+
+        # Find the title tag and return its string content
+        if soup.title and soup.title.string:
+            title = soup.title.string.strip()
+
+            # Remove the " - Chrome Web Store" suffix if present
+            chrome_store_suffix = " - Chrome Web Store"
+            if title.endswith(chrome_store_suffix):
+                title = title[: -len(chrome_store_suffix)].strip()
+
+            return title if title else None
+        else:
+            return None  # No title tag was found
+
+    except requests.exceptions.RequestException as e:
+        # Handle connection errors, timeouts, etc.
+        print(f"An error occurred while fetching the URL: {e}")
+        return None
+    except Exception as e:
+        # Handle any other errors (parsing, etc.)
+        print(f"An error occurred while processing the page: {e}")
+        return None
 
 
 def validate_url(url: str) -> bool:
@@ -158,23 +206,22 @@ def extract_item_data(url: str) -> Optional[dict[str, str]]:
         return None
 
     # Chrome Web Store URL format: https://chromewebstore.google.com/detail/{name}/{id}
-    url_match = re.search(r"/detail/([^/]+)/([^/?]+)", url)
+    url_match = re.search(r"/detail/[^/]+/([^/?]+)", url)
     if not url_match:
         return None
 
-    raw_item_name = url_match.group(1)
-    item_id = url_match.group(2)
+    item_id = url_match.group(1)
 
     try:
-        # Format item name by replacing URL-encoded dashes with spaces
-        formatted_name = urllib.parse.unquote(raw_item_name).replace("-", " ")
+        # Get the item name from the page title
+        item_name = get_chrome_store_item_name(url)
 
         # Generate Chrome item download URL
         crx_download_url = f"https://clients2.google.com/service/update2/crx?response=redirect&prodversion=138&acceptformat=crx2,crx3&x=id%3D{item_id}%26uc"
 
         item_data = {
             "id": item_id,
-            "name": formatted_name,
+            "name": item_name,
             "page": url,
             "file": crx_download_url,
         }
@@ -202,7 +249,4 @@ def is_valid_chrome_store_url(url: str) -> bool:
         return False
 
     parsed = urllib.parse.urlparse(url)
-    return (
-        parsed.hostname == "chromewebstore.google.com"
-        and "/detail/" in parsed.path
-    )
+    return parsed.hostname == "chromewebstore.google.com" and "/detail/" in parsed.path

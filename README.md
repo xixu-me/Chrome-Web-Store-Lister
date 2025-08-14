@@ -29,7 +29,7 @@ The data is provided as a JSON array containing Chrome Web Store items:
 [
   {
     "id": "ajiejgobfcifcikbahpijopolfjoodgf",
-    "name": "xget now",
+    "name": "Xget Now",
     "page": "https://chromewebstore.google.com/detail/xget-now/ajiejgobfcifcikbahpijopolfjoodgf",
     "file": "https://clients2.google.com/service/update2/crx?response=redirect&prodversion=138&acceptformat=crx2,crx3&x=id%3Dajiejgobfcifcikbahpijopolfjoodgf%26uc"
   }
