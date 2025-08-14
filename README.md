@@ -19,9 +19,6 @@ An automated Chrome Web Store item data collection system. This repository autom
 ```bash
 # Download latest data
 curl -L https://github.com/xixu-me/Chrome-Web-Store-Lister/releases/latest/download/data.json
-
-# Get raw data from list branch
-curl -L https://github.com/xixu-me/Chrome-Web-Store-Lister/raw/refs/heads/list/data.json
 ```
 
 ### Data Format
