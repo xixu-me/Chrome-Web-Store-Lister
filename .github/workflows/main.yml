@@ -3,7 +3,7 @@ name: List Update
 on:
   # Run daily at 8:00 AM UTC for consistent data collection
   schedule:
-    - cron: "0 * * * *"
+    - cron: "0 8 * * *"
   # Allow manual workflow execution for testing and maintenance
   workflow_dispatch:
 
