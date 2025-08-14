@@ -16,24 +16,24 @@ jobs:
       contents: write
 
     steps:
-      # Step 1: Repository Setup
+      # Repository Setup
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      # Step 2: Python Environment Configuration
+      # Python Environment Configuration
       - name: Configure Python environment
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
 
-      # Step 3: Dependency Installation
+      # Dependency Installation
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # Step 4: Chrome Web Store Item Data Collection
+      # Chrome Web Store Item Data Collection
       - name: Execute Chrome Web Store item data collection
         id: data-collection
         run: |
@@ -60,7 +60,7 @@ jobs:
 
           echo "⏱️ Total execution time: ${DURATION} seconds"
 
-      # Step 5: Output Validation and Quality Assurance
+      # Output Validation and Quality Assurance
       - name: Validate collected data and perform quality checks
         run: |
           # Verify output file was created
@@ -91,7 +91,7 @@ jobs:
           # Verify data integrity and uniqueness
           python -c "import json; data=json.load(open('data.json')); unique_ids=set(item['id'] for item in data); print(f'✅ All {len(data)} items have unique IDs' if len(unique_ids)==len(data) else '⚠️ Warning: Duplicate items detected')"
 
-      # Step 6: System Resource Monitoring
+      # System Resource Monitoring
       - name: Monitor system resource utilization
         if: always()
         run: |
@@ -100,44 +100,14 @@ jobs:
           echo "CPU load average: $(uptime | awk -F'load average:' '{print $2}')"
           echo "Disk usage: $(df -h / | tail -1 | awk '{print $5}')"
 
-      # Step 7: Date and Time Generation
+      # Date and Time Generation
       - name: Generate timestamp for release tagging
         id: timestamp
         run: |
           echo "current=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
           echo "datetime=$(date +'%Y-%m-%d at %H:%M UTC')" >> $GITHUB_OUTPUT
 
-      # Step 8: List Branch Management and Version Control
-      - name: Commit collected data to dedicated list branch
-        run: |
-          # Configure Git identity for automated commits
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # Create or update the dedicated list branch
-          if git ls-remote --exit-code --heads origin list; then
-            git fetch origin list
-            git checkout list
-            git reset --hard origin/list
-          else
-            git checkout --orphan list
-            git rm -rf . 2>/dev/null || true
-            git commit --allow-empty -m "Initialize list branch"
-            git push origin list
-          fi
-
-          # Stage the collected data file
-          git add data.json
-
-          # Commit changes with timestamp if there are modifications
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "Update list: ${{ steps.timestamp.outputs.datetime }}"
-            git push --force origin list
-          fi
-
-      # Step 9: GitHub Release Creation and Publishing
+      # GitHub Release Creation and Publishing
       - name: Create GitHub release with collected data
         uses: softprops/action-gh-release@v2
         with:
@@ -156,7 +126,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Step 10: Failure Notification and Debugging
+      # Failure Notification and Debugging
       - name: Handle workflow failure and provide diagnostic information
         if: failure()
         run: |
@@ -168,7 +138,7 @@ jobs:
           echo "FAILURE_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_ENV
           echo "FAILURE_STEP=${{ github.action }}" >> $GITHUB_ENV
 
-      # Step 11: Success Notification and Summary
+      # Success Notification and Summary
       - name: Report successful workflow completion
         if: success()
         run: |
@@ -176,7 +146,7 @@ jobs:
           echo "📊 Collected ${{ steps.data-collection.outputs.items_count || 'N/A' }} item records"
           echo "⏱️ Total collection time: ${{ steps.data-collection.outputs.duration || 'N/A' }} seconds"
 
-      # Step 12: Cleanup and Resource Management
+      # Cleanup and Resource Management
       - name: Clean up temporary files and resources
         if: always()
         run: |
