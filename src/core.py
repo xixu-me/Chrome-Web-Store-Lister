@@ -320,7 +320,11 @@ class ChromeWebStoreLister:
         return shard_urls
 
     def _process_shard(
-        self, shard_url: str, show_progress: bool = True
+        self,
+        shard_url: str,
+        show_progress: bool = True,
+        shard_index: int = 1,
+        total_shards: int = 1,
     ) -> dict[str, Any]:
         """
         Process a single shard and extract item data.
@@ -328,6 +332,8 @@ class ChromeWebStoreLister:
         Args:
             shard_url: URL of the shard to process.
             show_progress: Whether to display progress bars during processing.
+            shard_index: Current shard number (1-based).
+            total_shards: Total number of shards being processed.
 
         Returns:
             dict[str, any]: Dictionary containing extracted items and statistics.
@@ -357,7 +363,7 @@ class ChromeWebStoreLister:
             if show_url_progress:
                 url_progress = tqdm(
                     url_elements,
-                    desc="Processing URLs in shard",
+                    desc=f"Processing URLs in shard {shard_index}/{total_shards}",
                     unit="url",
                     leave=False,
                     ncols=80,
@@ -432,12 +438,16 @@ class ChromeWebStoreLister:
             )
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # Submit all shard processing tasks
+            # Submit all shard processing tasks with shard index
             future_to_shard = {
                 executor.submit(
-                    self._process_shard, shard_url, self.show_progress
+                    self._process_shard,
+                    shard_url,
+                    self.show_progress,
+                    i + 1,
+                    len(shard_urls),
                 ): shard_url
-                for shard_url in shard_urls
+                for i, shard_url in enumerate(shard_urls)
             }
 
             # Process completed tasks
