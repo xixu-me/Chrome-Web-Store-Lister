@@ -170,6 +170,11 @@ def sanitize_item_data(item_data: dict) -> Optional[dict]:
         item_name = item_name[:200].strip()
     if not item_name:
         return None
+
+    # Mark item as invalid if name is "Chrome Web Store"
+    if item_name == "Chrome Web Store":
+        return None
+
     sanitized["name"] = item_name
 
     # Validate Chrome Web Store page URL
